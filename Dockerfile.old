@@ -1,0 +1,13 @@
+FROM i386/ubuntu
+WORKDIR /app
+RUN apt-get update -y 
+RUN apt-get install wget -y && \ 
+   apt-get install cron -y  && \ 
+   apt-get install unzip -y 
+COPY haaukinscron /etc/cron.d/haaukinscron
+COPY run.sh /app/
+RUN chmod 0644 /etc/cron.d/haaukinscron
+RUN crontab /etc/cron.d/haaukinscron
+RUN touch /var/log/cron.log
+
+CMD ["/bin/bash", "/app/run.sh"]

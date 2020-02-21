@@ -1,0 +1,2 @@
+ * * * * * cd /root/go/src/github.com/mrturkmen06/scheduler/ && /usr/local/go/bin/go run main.go > /proc/1/fd/1 2>/proc/1/fd/2
+
