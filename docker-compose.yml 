@@ -1,0 +1,17 @@
+version: '3.4'
+services:
+  autokiller:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+    - ${CERTIFICATE_FILE}:/certs
+    - ${CONFIG_FILE}:/app/conf.yml
+    env_file:
+      - .env
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 2
+      restart_policy:
+        condition: on-failure
