@@ -3,3 +3,4 @@ conf.yml
 cron
 Dockerfile.old
 .DS_Store
+.env

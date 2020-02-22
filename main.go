@@ -34,7 +34,6 @@ type UserCredentials struct {
 	TLS struct {
 		Enabled bool `yaml:"enabled"`
 		Certfile string `yaml:"certfile"`
-		Certkey string `yaml:"certkey"`
 	} `yaml:"tls,omitempty"`
 }
 
@@ -63,7 +62,7 @@ func main() {
 
 	}
 	if userCredentials.TLS.Enabled {
-
+		// no need to use certkey file which can be used in server side but not in client side
 		creds, err := credentials.NewClientTLSFromFile(userCredentials.TLS.Certfile, "")
 		if err != nil {
 			log.Error().Msgf("Error while enabling certificates for GRPC, error : %s",err)
