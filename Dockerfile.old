@@ -1,13 +1,18 @@
-FROM i386/ubuntu
-WORKDIR /app
-RUN apt-get update -y 
-RUN apt-get install wget -y && \ 
-   apt-get install cron -y  && \ 
-   apt-get install unzip -y 
-COPY haaukinscron /etc/cron.d/haaukinscron
-COPY run.sh /app/
-RUN chmod 0644 /etc/cron.d/haaukinscron
-RUN crontab /etc/cron.d/haaukinscron
-RUN touch /var/log/cron.log
+FROM ubuntu:latest
 
-CMD ["/bin/bash", "/app/run.sh"]
+RUN apt-get update  && apt-get -y install cron && apt-get -y install wget && apt-get install -y git &&  apt-get install -y build-essential
+
+RUN wget https://dl.google.com/go/go1.13.8.linux-amd64.tar.gz && tar -C /usr/local -xzf go1.13.8.linux-amd64.tar.gz
+RUN rm -rf go1.13.8.linux-amd64.tar.gz
+RUN export PATH=$PATH:/usr/local/go/bin
+
+RUN mkdir -p /root/go/src/github.com/mrturkmen06
+
+COPY . /root/go/src/github.com/mrturkmen06/scheduler
+COPY cron /etc/cron.d/cron
+RUN chmod 0644 /etc/cron.d/cron
+RUN crontab /etc/cron.d/cron
+RUN touch /var/log/cron.log
+RUN service cron start
+SHELL ["/bin/bash", "-c"]
+CMD ["cron","-f"]
