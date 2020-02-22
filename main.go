@@ -3,11 +3,15 @@ package main
 import (
 	"context"
 	pb "github.com/aau-network-security/haaukins/daemon/proto"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 	"gopkg.in/yaml.v2"
+	"io"
 	"io/ioutil"
+	"os"
 	"time"
 )
 
@@ -19,30 +23,59 @@ type MD map[string][]string
 
 type UserCredentials struct {
 	// make variable name uppercase to make it accessible
-	GrpcAddress string `yaml:"grpcendpoint"`
-	GrpcPort 	string `yaml:"grpcport"`
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
+	User struct{
+		Username string `yaml:"username"`
+		Password string `yaml:"password"`
+	} `yaml:"user,omitempty"`
+	Grpc struct {
+		Address string `yaml:"endpoint"`
+		Port 	string `yaml:"port"`
+	} `yaml:"grpc,omitempty"`
+	TLS struct {
+		Enabled bool `yaml:"enabled"`
+		Certfile string `yaml:"certfile"`
+		Certkey string `yaml:"certkey"`
+	} `yaml:"tls,omitempty"`
 }
 
 
 func main() {
 	//setEnvVariables() // setting environment variables for test purposes
-	f, err := ioutil.ReadFile("conf.yml")
+	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
+	loggerFile, err := os.OpenFile("schedulerlog", os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666)
 	if err != nil {
-		log.Debug().Msgf("Error while reading user credentials file")
+		logger.Fatal().Msgf("error opening file: %v", err)
 	}
-	var credentials UserCredentials
-	err = yaml.Unmarshal(f, &credentials)
+	defer loggerFile.Close()
+	logger.Output(loggerFile)
+
+	var userCredentials UserCredentials
+
+	f, err := ioutil.ReadFile("/app/conf.yml") // mount the directory when running docker
 	if err != nil {
-		log.Error().Msgf("Error while reading user credentials")
+		logger.Debug().Msgf("Error while reading user credentials file")
+	}
+	err = yaml.Unmarshal(f, &userCredentials)
+	if err != nil {
+		logger.Error().Msgf("Error while reading user credentials")
 	}
 	opts := []grpc.DialOption{
-		grpc.WithInsecure(),
+
 	}
-	conn, err := grpc.Dial(credentials.GrpcAddress+":"+credentials.GrpcPort, opts...)
+	if userCredentials.TLS.Enabled {
+
+		creds, err := credentials.NewClientTLSFromFile(userCredentials.TLS.Certfile, "")
+		if err != nil {
+			log.Error().Msgf("Error while enabling certificates for GRPC, error : %s",err)
+		}
+		opts = append(opts,grpc.WithTransportCredentials(creds))
+
+	} else {
+		opts = append(opts,grpc.WithInsecure())
+	}
+	conn, err := grpc.Dial(userCredentials.Grpc.Address+":"+userCredentials.Grpc.Port, opts...)
 	if err != nil {
-		log.Debug().Msgf("Error : %s", err)
+		logger.Debug().Msgf("Error : %s", err)
 	}
 	c := pb.NewDaemonClient(conn)
 
@@ -50,38 +83,51 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	loginResp, err := c.LoginUser(ctx, &pb.LoginUserRequest{
-		Username: credentials.Username,
-		Password: credentials.Password,
+		Username: userCredentials.User.Username,
+		Password: userCredentials.User.Password,
 	})
 	if err != nil {
-		log.Debug().Msgf("Login user error ! %s", err)
+		logger.Debug().Msgf("Login user error ! %s", err)
 	}
 	md := metadata.New(map[string]string{"token": loginResp.GetToken()})
 	contextWithMetaData := metadata.NewOutgoingContext(context.Background(), md)
 
 	events, err := c.ListEvents(contextWithMetaData, &pb.ListEventsRequest{})
 	if err != nil {
-		log.Error().Msgf("Error on listing events %s", err)
+		logger.Error().Msgf("Error on listing events %s", err)
 	}
-	for _, e := range events.Events {
-		log.Debug().Msgf("Checking event %s", e.Name)
-		t, err := time.Parse(timeLayout, e.FinishTime)
-		if err != nil {
-			log.Error().Msgf("Finish time parsing error! %s ", err)
-		}
 
-		if t.Before(time.Now()) {
-			_, err := c.StopEvent(contextWithMetaData, &pb.StopEventRequest{
-				Tag: e.Tag,
-			})
+	if  events != nil {
+		for _, e := range events.Events {
+			t, err := time.Parse(timeLayout, e.FinishTime)
 			if err != nil {
-				log.Fatal().Msgf("Error while stopping event %s", e.Name)
+				logger.Error().Msgf("Finish time parsing error! %s ", err)
 			}
-			t, err := time.Parse(timeLayout,time.Now().String())
-			if err !=nil {
-				log.Warn().Msgf("time.Now() parsing error")
+			if t.After(time.Now()){
+				log.Info().Msgf("Expected finish time for event: %s, is %s, skipping ... ",e.Name,e.FinishTime)
 			}
-			log.Debug().Msgf("Stopping event %s Expected finis time is  %s and stopping event at %s ", e.Name, e.FinishTime,t.String())
+			if t.Before(time.Now()) {
+				log.Debug().Msgf("Checking event %s", e.Name)
+				stopStream, err := c.StopEvent(contextWithMetaData, &pb.StopEventRequest{
+					Tag: e.Tag,
+				})
+				if err != nil {
+					log.Error().Msgf("Error: %s ",err)
+					return
+				}
+				for {
+					_, err := stopStream.Recv()
+					if err == io.EOF {
+						break
+					}
+
+					if err != nil {
+						log.Error().Msgf("Error: %s ",err)
+						return
+					}
+				}
+				logger.Debug().Msgf("Event %s is stopped ! ",e.Name)
+			}
 		}
 	}
 }
