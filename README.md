@@ -13,8 +13,18 @@ There are some important parts to run this auto-cleaner for events:
 - `docker build -t autokiller . `
  
  *Running the image* 
+
+__In order to run stop command following command should be run :__
  
-- `docker run -it --rm -v (path_of_conf_file):/app/conf.yml -v (path_of_certs):/certs autokiller`
+- `docker run -it --rm -v (path_of_conf_file):/app/conf.yml -v (path_of_certs):/certs autokiller -command stop`
+
+__In order to run start command following command should be run :__
+
+- `docker run -it --rm -v (path_of_conf_file):/app/conf.yml -v (path_of_certs):/certs autokiller -command start`
+
+
+*Note*: In order to test it on your local environment ` --network=host` should be clarified when `grpc_endpoint` is `localhost`. 
+
 
 #### Cronjob configuration on host side 
 
@@ -32,7 +42,7 @@ __Docker container will gonna remove itself when it is done.__
 
 
 #### Todo
-- [ ] Starting events automatically could be added (useful for booking functionality ...)
+- [x] Starting events automatically could be added (useful for booking functionality ...)
 - [ ] Github actions for autodeploy and build should be integrated
 - [ ] The functionality of this program should be tested on test environment properly
 

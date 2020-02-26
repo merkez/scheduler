@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	pb "github.com/aau-network-security/haaukins/daemon/proto"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -40,11 +41,16 @@ type UserCredentials struct {
 
 func main() {
 	//setEnvVariables() // setting environment variables for test purposes
+	command := flag.String("command","stop", "In default stops scheduled events." )
+	flag.Parse()
+	log.Debug().Msgf("Flag has been set %s",*command)
+
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 	loggerFile, err := os.OpenFile("schedulerlog", os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666)
 	if err != nil {
 		logger.Fatal().Msgf("error opening file: %v", err)
 	}
+
 	defer loggerFile.Close()
 	logger.Output(loggerFile)
 
@@ -98,34 +104,42 @@ func main() {
 
 	if  events != nil {
 		for _, e := range events.Events {
-			t, err := time.Parse(timeLayout, e.FinishTime)
+			finishTime, err := time.Parse(timeLayout, e.FinishTime)
 			if err != nil {
 				logger.Error().Msgf("Finish time parsing error! %s ", err)
 			}
-			if t.After(time.Now()){
+			if finishTime.After(time.Now()){
 				log.Info().Msgf("Expected finish time for event: %s, is %s, skipping ... ",e.Name,e.FinishTime)
 			}
-			if t.Before(time.Now()) {
+			if finishTime.Before(time.Now()) {
 				log.Debug().Msgf("Checking event %s", e.Name)
-				stopStream, err := c.StopEvent(contextWithMetaData, &pb.StopEventRequest{
-					Tag: e.Tag,
-				})
-				if err != nil {
-					log.Error().Msgf("Error: %s ",err)
-					return
-				}
-				for {
-					_, err := stopStream.Recv()
-					if err == io.EOF {
-						break
-					}
-
+				if *command == "stop" {
+					stopStream, err := c.StopEvent(contextWithMetaData, &pb.StopEventRequest{
+						Tag: e.Tag,
+					})
 					if err != nil {
-						log.Error().Msgf("Error: %s ",err)
+						log.Error().Msgf("Error on stopping event: %s ", err)
 						return
 					}
+					for {
+						_, err := stopStream.Recv()
+						if err == io.EOF {
+							break
+						}
+
+						if err != nil {
+							log.Error().Msgf("Error: %s ", err)
+							return
+						}
+					}
+					logger.Debug().Msgf("Event %s is stopped ! ", e.Name)
 				}
-				logger.Debug().Msgf("Event %s is stopped ! ",e.Name)
+			}
+			if *command == "start" {
+			  _, err := c.StartEvent(contextWithMetaData,&pb.Empty{});
+			  if err !=nil {
+			  	 log.Error().Msgf("Error on starting event %s", err)
+				}
 			}
 		}
 	}
